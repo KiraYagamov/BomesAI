@@ -5,7 +5,6 @@ WORKDIR /app
 # Копирование файлов проекта
 COPY . /app
 # Установка зависимостей
-RUN pip install openai
-RUN pip install aiogram
+RUN pip install -r requirements.txt
 # Запуск приложения
 CMD ["python", "main.py"]
