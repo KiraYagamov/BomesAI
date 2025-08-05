@@ -1,77 +1,53 @@
-from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
-import telebot
+from aiogram import Bot, Dispatcher
+from openai import AsyncOpenAI
+from config import *
+import asyncio
 from User import User
 
-# Загрузка модели (первый запуск скачает ~1.5 ГБ)
-# model_name = "ai-forever/rugpt3large_based_on_gpt2"
-# model_name = "ai-forever/ruGPT-3.5-13B"
-model_name = "sberbank-ai/rugpt3large_based_on_gpt2"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(model_name)
+bot = Bot(token=TG_TOKEN)
+dp = Dispatcher()
 
-# Создаём пайплайн для генерации текста
-chatbot = pipeline(
-    "text-generation",
-    model=model,
-    tokenizer=tokenizer,
-    device="cuda",  # Используем GPU если есть
+client = AsyncOpenAI(
+  base_url="https://openrouter.ai/api/v1",
+  api_key=API_TOKEN,
 )
-
-# Параметры генерации
-generation_config = {
-    "do_sample": True,
-    "temperature": 0.22,
-    "top_k": 60,
-    "top_p": 0.9,
-    "max_new_tokens": 30,
-    "no_repeat_ngram_size": 2
-}
-
-input_bot_data = "Идет диалог между пользователем и умным и вежливым чат-ботом:"
-
-def generate_answer(prompt, dialog, recursion_count=0):
-    global input_bot_data
-    if recursion_count > 3:
-        return "Бот не знает, что ответить"
-    full_prompt = f"{input_bot_data}{"\n"}{"\n".join(dialog)}\n{prompt}"
-    result = chatbot(full_prompt, **generation_config)
-    bot_response = result[0]['generated_text'].split("А чат-бот ему ответил - ")[-1].strip().split("\n")[0]
-    if bot_response.count("?") > 1:
-        return generate_answer(prompt, dialog, recursion_count + 1)
-    print(f"{full_prompt}{bot_response}")
-    return bot_response
-
-token = "7477847721:AAHim6MHOnH6JI6jbE7T5Nvuud6bVAZHZd0"
-bot = telebot.TeleBot(token)
 
 users = {}
 
-@bot.message_handler(commands=['start'])
-def start_message(message):
-    bot.send_message(message.chat.id, "Вас приветствует искусственный интеллект BomesAI!\nВведите любое сообщение, чтобы начать общаться")
-    user = User(message.chat.id)
-    users[message.chat.id] = user
-
-@bot.message_handler(commands=['reset'])
-def reset_message(message):
-    bot.send_message(message.chat.id, "История ваших сообщений сброшена")
-    user = users[message.chat.id]
-    user.dialog.clear()
-
-@bot.message_handler(content_types=['text'])
-def text_message(message):
+@dp.message()
+async def any_message(message):
     if message.chat.id not in users.keys():
-        bot.send_message(message.chat.id, "Для начала введите /start")
+        await message.answer("Привет! Меня зовут BomesAI и я твой личный помощник! Пожалуйста, имейте ввиду, что я помню только последние 10 сообщений.")
+        users[message.chat.id] = User(message.chat.id)
         return
     user = users[message.chat.id]
-    user_input = message.text
-    prompt = f"Пользователь сказал - \"{user_input}\"\nА чат-бот ему ответил - "
-    msg = bot.send_message(message.chat.id, "Бот думает...")
-    bot_response = generate_answer(prompt, user.dialog)
-    bot.edit_message_text(bot_response.replace("\"", ""), message.chat.id, msg.id)
-    user.dialog.append(f"{prompt}{bot_response}")
-    if len(user.dialog) > 10:
-        user.dialog.pop(0)
-    print("----------------------------")
+    if user.waiting:
+        await message.answer("Пожалуйста, подождите. Ваш запрос еще обрабатывается!")
+        return
+    user.waiting = True
+    think = await message.answer("Бот думает...")
+    await bot.send_chat_action(message.chat.id, "typing")
+    user.history.append({
+        "role": "user",
+        "content": message.text
+    })
+    completion = await client.chat.completions.create(
+        extra_body={},
+        model="deepseek/deepseek-chat-v3-0324",
+        messages=user.history
+    )
+    ai_answer = completion.choices[0].message.content
+    user.history.append({
+        "role": "assistant",
+        "content": ai_answer
+    })
+    user.history = [user.history[0]] + user.history[-10:]
+    user.waiting = False
+    await bot.delete_message(message.chat.id, think.message_id)
+    await message.answer(ai_answer, parse_mode="Markdown")
 
-bot.infinity_polling()
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
