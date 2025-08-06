@@ -1,2 +1,7 @@
-API_TOKEN="Ваш токен openrouter"
-TG_TOKEN="Ваш токен телеграм-бота"
+API_TOKENS = [
+    "ВАШ СПИСОК ТОКЕНОВ OPENROUTER"
+]
+MODELS = [
+    "ВАШ СПИСОК МОДЕЛЕЙ НА OPENROUTER"
+]
+TG_TOKEN = "ВАШ ТОКЕН ТЕЛЕГРАМ БОТА"
